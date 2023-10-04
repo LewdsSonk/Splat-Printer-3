@@ -26,7 +26,7 @@ these buttons for our use.
 
 #include "Joystick.h"
 
-extern const uint8_t image_data[0x12c1] PROGMEM;
+extern const uint8_t image_data[0x12c2] PROGMEM;
 
 // Main entry point.
 int main(void) {
@@ -34,6 +34,8 @@ int main(void) {
 	SetupHardware();
 	// We'll then enable global interrupts for our use.
 	GlobalInterruptEnable();
+	//Lastly, for the image printing, we'll check the options in the first byte of the image.
+	CheckImageOptions();
 	// Once that's done, we'll enter an infinite loop.
 	for (;;)
 	{
@@ -67,6 +69,30 @@ PORTD will toggle when printing is done.
 	// The USB stack should be initialized last.
 	USB_Init();
 }
+
+//Global values for the options
+int cautiousoffset = 0; //Could possibly change into a bool and then make the offset somewhere else in the future?
+						//X offset adds X * 120 inputs in total, since the image is 320x120.
+bool opposite = false;
+void CheckImageOptions(void) {
+	for (int current_bit = 0; current_bit < 8; current_bit++){
+		if (pgm_read_byte(&(image_data[current_bit/8])) & 1 << (current_bit % 8)){
+			switch(current_bit){
+				case 0:	cautiousoffset = 3; break;
+				case 1: opposite = true; break;
+				case 2:
+				case 3:
+				case 4:
+				case 5:
+				case 6:
+				case 7:
+				case default: break;
+			}
+		}
+	}
+}
+
+bool CompareOptionsBit(bool current_bit, bool options_bit)
 
 // Fired to indicate that the device is enumerating.
 void EVENT_USB_Device_Connect(void) {
@@ -153,6 +179,7 @@ State_t state = SYNC_CONTROLLER;
 int echoes = 0;
 USB_JoystickReport_Input_t last_report;
 
+#define FLAGS_OFFSET 8
 int report_count = 0;
 int xpos = 0;
 int ypos = 0;
@@ -197,7 +224,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 			report_count++;
 			break;
 		case SYNC_POSITION:
-			if (report_count == 250)
+			if (report_count >= 250)
 			{
 				report_count = 0;
 				xpos = 0;
@@ -212,9 +239,10 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 			}
 			if (report_count == 75 || report_count == 150)
 			{
-				// Clear the screen
-				ReportData->Button |= SWITCH_LCLICK;
-                                // Choose the smaller pencil
+				// Clear the screen; If "opposite" is true, doesn't clear it. User has to manually make it black, though.
+				if (opposite == false)
+					ReportData->Button |= SWITCH_LCLICK;
+                // Choose the smaller pencil
 				ReportData->Button |= SWITCH_L;
 			}
 			report_count++;
@@ -239,10 +267,15 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				ReportData->HAT = HAT_RIGHT;
 				xpos++;
 			}
-			if (xpos > 0 && xpos < 320 - 1)
+			if (xpos > 0 - cautiousoffset && xpos < 320 - 1 + cautiousoffset)
 				state = STOP_X;
-			else
+			else{
+				if (ypos % 2)
+					xpos = 0;
+				else
+					xpos = 320 - 1;
 				state = STOP_Y;
+			}
 			break;
 		case MOVE_Y:
 			ReportData->HAT = HAT_BOTTOM;
@@ -260,12 +293,15 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 	}
 
 	// Inking
-	if (state != SYNC_CONTROLLER && state != SYNC_POSITION)
-		if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40)])) & 1 << (xpos % 8))
-			ReportData->Button |= SWITCH_A;
+	if (state != SYNC_CONTROLLER && state != SYNC_POSITION && xpos >= 0 && xpos < 320)
+		if (opposite == false)
+			if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET])) & 1 << (xpos % 8))
+				ReportData->Button |= SWITCH_A;
+		else
+			if (!(pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET])) & 1 << (xpos % 8)))
+				ReportData->Button |= SWITCH_B;
 
 	// Prepare to echo this report
 	memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_Input_t));
 	echoes = ECHOES;
-
 }

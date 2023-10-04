@@ -53,7 +53,7 @@ For the Arduino UNO, the easiest place to connect the buzzer is to any pin of JP
 On the Arduino Micro, D0-D3 may be used, or pins 1, 3, or 4 (PORTB) on the ICSP header. Power specs are the same as for the AT90USB1286 used on the Teensy. The TX and RX LEDs are on PORTD and PORTB respectively and draw around 3mA apiece. Do not bridge pins for more current.
 
 #### Using your own image
-The image printed depends on `image.c` which is generated with `png2c.py` which takes a 320x120 .png image. `png2c.py` will pack the image to a linear 1bpp array. If the image is not already made up of only black and white pixels, it will be dithered.
+The image printed depends on `splat_image.c` which is generated with `png2c.py` which takes a 320x120 .png image. `png2c.py` will pack the image to a linear 1bpp array. If the image is not already made up of only black and white pixels, it will be dithered.
 
 In order to run `png2c.py`, you need to [install Python](https://www.python.org/downloads/) (I use Python 2.7). Also, you need to have the [Python Imaging Library](https://pillow.readthedocs.io/en/3.0.0/installation.html) installed ([install pip](https://pip.pypa.io/en/stable/installing/#do-i-need-to-install-pip) if you need to).
 Using the supplied sample image, splatoonpattern.png:
@@ -61,7 +61,7 @@ Using the supplied sample image, splatoonpattern.png:
 ```
 $ python png2c.py splatoonpattern.png
 ```
-Substitute your own .png image to generate the `image.c` file necessary to print. Just make sure your image is in the `Switch-Fightstick` directory.
+Substitute your own .png image to generate the `splat_image.c` file necessary to print. Just make sure your image is in the `Splatoon-3-Post-Printer` directory.
 
 To generate an inverted colormap of the image:
 

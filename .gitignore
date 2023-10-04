@@ -9,3 +9,9 @@
 *.sym
 *.eep
 LUFA/
+
+splat-images/*
+preview-images/*
+splat_image.c
+image.c
+AVRGCCStart.cmd
