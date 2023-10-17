@@ -6,35 +6,43 @@ from PIL import Image
 def main(argv):
   long_opt_list = ["help",
                    "preview",
-                   "save",
-                   "invertcmap"
-                   "opposite",
+                   "savebilevel",
+                   "invertcmap",
+                   "nodither",
                    "cautious",
-                   "nodither"]
-  opts, args = getopt.getopt(argv, "pshinoc", long_opt_list)
-  previewBilevel = False
-  saveBilevel = False
-  invertColormap = False
-  no_dither = False
-  opposite = False
-  cautious = False
+                   "opposite",
+                   "slowmode",
+                   "endsave"]
+  opts, args = getopt.getopt(argv, "hpbcosein", long_opt_list)
+  option_list = {'previewBilevel': False, 
+                 'saveBilevel': False,
+                 'invertColormap': False,
+                 'no_dither': False,
+                 'cautious': False,
+                 'opposite': False,
+                 'slowmode': False,
+                 'endsave': False}
 
   for opt, arg in opts:
     if opt in ['-h', '--help']:
       usage()
       sys.exit()
     elif opt in ['-p', '--preview']:
-      previewBilevel = True
-    elif opt in ['-s', '--save']:
-      saveBilevel = True
-    elif opt in ['-o', '--opposite']:
-      opposite = True
-    elif opt in ['-c', '--cautious']:
-      cautious = True
-    elif opt in ['-i', '--invertcmap']:
-      invertColormap = True
+      option_list['previewBilevel'] = True
+    elif opt in ['-b', '--savebilevel']:
+      option_list['saveBilevel'] = True
     elif opt in ['-n', '--nodither']:
-      no_dither = True
+      option_list['no_dither'] = True
+    elif opt in ['-c', '--cautious']:
+      option_list['cautious'] = True
+    elif opt in ['-o', '--opposite']:
+      option_list['opposite'] = True
+    elif opt in ['-s', '--slowmode']:
+      option_list['slowmode'] = True
+    elif opt in ['-e', '--endsave']:
+      option_list['endsave'] = True
+    elif opt in ['-i', '--invertcmap']:
+      option_list['invertColormap'] = True
 
   filename = args[0]
   filename_direct = os.path.basename(filename)
@@ -56,20 +64,20 @@ def main(argv):
     sys.exit()
 
   # Convert to bilevel image
-  if no_dither:
+  if option_list['no_dither']:
     im = im.convert("1", dither = None) # this also adds dithering if wanted
   else:
     im = im.convert("1", dither = Image.Dither.FLOYDSTEINBERG)
 
-  if previewBilevel:
+  if option_list['previewBilevel']:
     print(f"Previewing {filename_direct}!")
     im.show()
   
-  if saveBilevel:
+  if option_list['saveBilevel']:
     im.save(f"preview-images\\bilevel_{filename_direct}")
     print("Bilevel preview version of " + filename_direct + " saved as bilevel_" + filename_direct)
   
-  if not (previewBilevel or saveBilevel):
+  if not (option_list['previewBilevel'] or option_list['saveBilevel']):
     im_px = im.load()
     data = []
     for i in range(0,120):                # iterate over the columns
@@ -77,15 +85,15 @@ def main(argv):
          data.append(0 if im_px[j,i] == 255 else 1)
 
     str_out = "#include <stdint.h>\n#include <avr/pgmspace.h>\n\nconst uint8_t image_data[0x12c2] PROGMEM = {"
-    options = hex(2**0 * opposite + 2**1 * cautious) # Adding printing options to the code file
+    options = hex(2**0 * option_list['cautious'] + 2**1 * option_list['opposite'] + 2**2 * option_list['slowmode'] + 2**3 * option_list['endsave']) # Adding printing options to the code file
     str_out += options + ", "
-    for i in range(0, 4800):            # 320 x 120 / 8
+    for i in range(0, 4800): # 320 x 120 / 8
        val = 0
 
        for j in range(0, 8):
           val |= data[(i * 8) + j] << j
 
-       if (invertColormap):
+       if (option_list['invertColormap']):
           val = ~val & 0xFF
        else:
           val = val & 0xFF
@@ -97,25 +105,35 @@ def main(argv):
     with open('splat_image.c', 'w') as f:       # save output into image.c
       f.write(str_out)
 
-    if (invertColormap):
+    if (option_list['invertColormap']):
        print("{} converted with inverted colormap and saved to splat_image.c".format(filename))
     else:
        print("{} converted with original colormap and saved to splat_image.c".format(filename))
     print(f"Black Pixel Count: {sum(data)}")
     print(f"White Pixel Count: {38400 - sum(data)}")
+    print(f"\n-= Options chosen =-")
+    for opt in option_list:
+        print(f"{opt}: {option_list[opt]}")
 
-    if sum(data) > 38400/2 and opposite != True:
-      print(f"It's {round((sum(data)/(38400 - sum(data)) - 1) * 100, 2)}% more optimal to print in opposite mode. Try re-printing with \"-o\" as an option?")
+    if sum(data) > 38400/2 and option_list['opposite'] != True:
+      print(f"There's {round((sum(data)/(38400 - sum(data)) - 1) * 100, 2)}% less inputs to print in opposite mode. Try re-printing with \"-o\" as an option?")
 
 def usage():
-  print("To convert to splat_image.c: png2c.py <yourImage.png>")
-  print("To convert to an inverted splat_image.c: png2c.py -i <yourImage.png>")
-  print("To preview bilevel splat_image: png2c.py -p <yourImage.png>")
-  print("To save bilevel splat_image: png2c.py -s <yourImage.png>")
-  print("-=CONFIGS=-")
-  print("To print in cautious mode: png2c.py -c <yourImage.png>")
-  print("To print in optimal mode: png2c.py -o <yourImage.png>")
-
+  print("To convert to splat_image.c: png2c.py [-options] <yourImage.png>")
+  print("\n--help [-h]: Show this help list")
+  print("--invertcmap [-i]: Convert to an inverted splat_image.c")
+  print("--preview [-p]: Preview bilevel splat_image.c")
+  print("--savebilevel [-b]: Save bilevel splat_image.c")
+  print("\n-=CONFIGS=-")
+  print("--cautious [-c]: To print in cautious mode")
+  print("  * Cautious mode adds extra, 3 blank inputs to each line print, that way, any dropped inputs in a line (as long as it's under 3 inputs) won't affect following lines.")
+  print("--opposite [-l]: To print in opposite mode")
+  print("  * Sometimes, printing by instead erasing a black image will result in less inputs, which can lead to less dropped inputs, and as such, less mistakes.")
+  print("--slowmode [-s]: To print in slowmode")
+  print("  * Slowmode separates moving and inking into 2 separate actions. This doubles the time spent printing, but makes it extremely unlikely for there to be dropped inputs. Recommended for complex images.")
+  print("--endsave [-e]: To have Splatoon 3 save and close the image after printing it.")
+  print("  * Since saving at the end overwrites whatever you had before, sometimes it's not ideal to have the image save on top. If you don't mind that, though, enable this option.")
+  
 if __name__ == "__main__":
   if len(sys.argv[1:]) == 0:
     usage()

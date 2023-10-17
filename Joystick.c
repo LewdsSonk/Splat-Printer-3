@@ -28,6 +28,30 @@ these buttons for our use.
 
 extern const uint8_t image_data[0x12c2] PROGMEM;
 
+//Global values for the options
+int cautiousoffset = 0; //Could possibly change into a bool and then make the offset somewhere else in the future?
+						//X offset adds X * 120 inputs in total, since the image is 320x120.
+bool opposite = false;
+bool slowmode = false;
+bool endsave = false;
+void CheckImageOptions(void) {
+	for (int current_bit = 0; current_bit < 8; current_bit++){
+		if (pgm_read_byte(&(image_data[current_bit/8])) & 1 << (current_bit % 8)){
+			switch(current_bit){
+				case 0:	cautiousoffset = 3; break;
+				case 1: opposite = true; break;
+				case 2: slowmode = true; break;
+				case 3: endsave = true; break;
+				case 4:
+				case 5:
+				case 6:
+				case 7:
+				default: break;
+			}
+		}
+	}
+}
+
 // Main entry point.
 int main(void) {
 	// We'll start by performing hardware and peripheral setup.
@@ -69,30 +93,6 @@ PORTD will toggle when printing is done.
 	// The USB stack should be initialized last.
 	USB_Init();
 }
-
-//Global values for the options
-int cautiousoffset = 0; //Could possibly change into a bool and then make the offset somewhere else in the future?
-						//X offset adds X * 120 inputs in total, since the image is 320x120.
-bool opposite = false;
-void CheckImageOptions(void) {
-	for (int current_bit = 0; current_bit < 8; current_bit++){
-		if (pgm_read_byte(&(image_data[current_bit/8])) & 1 << (current_bit % 8)){
-			switch(current_bit){
-				case 0:	cautiousoffset = 3; break;
-				case 1: opposite = true; break;
-				case 2:
-				case 3:
-				case 4:
-				case 5:
-				case 6:
-				case 7:
-				case default: break;
-			}
-		}
-	}
-}
-
-bool CompareOptionsBit(bool current_bit, bool options_bit)
 
 // Fired to indicate that the device is enumerating.
 void EVENT_USB_Device_Connect(void) {
@@ -167,10 +167,15 @@ void HID_Task(void) {
 typedef enum {
 	SYNC_CONTROLLER,
 	SYNC_POSITION,
+	FILL_BLACK,
+	FILL_BLACK_YSHIFT,
+	FILL_BLACK_STOP_X,
+	FILL_BLACK_STOP_Y,
 	STOP_X,
 	STOP_Y,
 	MOVE_X,
 	MOVE_Y,
+	ENDSAVE,
 	DONE
 } State_t;
 State_t state = SYNC_CONTROLLER;
@@ -183,10 +188,20 @@ USB_JoystickReport_Input_t last_report;
 int report_count = 0;
 int xpos = 0;
 int ypos = 0;
+int blackfill = 0;
 int portsval = 0;
+bool slowflip = false;
+bool inkstopper = true;
 
 // Prepare the next report for the host.
 void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
+
+	if (slowmode == true && inkstopper == false){
+		if (slowflip == false)
+			slowflip = true;
+		else
+			slowflip = false;
+	}
 
 	// Prepare an empty report
 	memset(ReportData, 0, sizeof(USB_JoystickReport_Input_t));
@@ -205,101 +220,198 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 	}
 
 	// States and moves management
-	switch (state)
-	{
-		case SYNC_CONTROLLER:
-			if (report_count > 100)
-			{
-				report_count = 0;
-				state = SYNC_POSITION;
-			}
-			else if (report_count == 25 || report_count == 50)
-			{
-				ReportData->Button |= SWITCH_L | SWITCH_R;
-			}
-			else if (report_count == 75 || report_count == 100)
-			{
-				ReportData->Button |= SWITCH_A;
-			}
-			report_count++;
-			break;
-		case SYNC_POSITION:
-			if (report_count >= 250)
-			{
-				report_count = 0;
-				xpos = 0;
-				ypos = 0;
-				state = STOP_X;
-			}
-			else
-			{
-				// Moving faster with LX/LY
-				ReportData->LX = STICK_MIN;
-				ReportData->LY = STICK_MIN;
-			}
-			if (report_count == 75 || report_count == 150)
-			{
-				// Clear the screen; If "opposite" is true, doesn't clear it. User has to manually make it black, though.
-				if (opposite == false)
-					ReportData->Button |= SWITCH_LCLICK;
-                // Choose the smaller pencil
-				ReportData->Button |= SWITCH_L;
-			}
-			report_count++;
-			break;
-		case STOP_X:
-			state = MOVE_X;
-			break;
-		case STOP_Y:
-			if (ypos < 120 - 1)
-				state = MOVE_Y;
-			else
-				state = DONE;
-			break;
-		case MOVE_X:
-			if (ypos % 2)
-			{
-				ReportData->HAT = HAT_LEFT;
-				xpos--;
-			}
-			else
-			{
-				ReportData->HAT = HAT_RIGHT;
-				xpos++;
-			}
-			if (xpos > 0 - cautiousoffset && xpos < 320 - 1 + cautiousoffset)
-				state = STOP_X;
-			else{
-				if (ypos % 2)
+	if (slowflip == false || slowmode == false){
+		switch (state)
+		{
+			case SYNC_CONTROLLER:
+				if (report_count > 100)
+				{
+					report_count = 0;
+					state = SYNC_POSITION;
+				}
+				else if (report_count == 25 || report_count == 50)
+				{
+					ReportData->Button |= SWITCH_L | SWITCH_R;
+				}
+				else if (report_count == 75 || report_count == 100)
+				{
+					ReportData->Button |= SWITCH_A;
+				}
+				report_count++;
+				break;
+			case SYNC_POSITION:
+				if (report_count >= 250)
+				{
+					report_count = 0;
 					xpos = 0;
+					ypos = 0;
+					if (opposite == false){
+						inkstopper = false;
+						state = STOP_X;
+					}
+					else
+						state = FILL_BLACK_STOP_X;
+				}
 				else
-					xpos = 320 - 1;
-				state = STOP_Y;
-			}
-			break;
-		case MOVE_Y:
-			ReportData->HAT = HAT_BOTTOM;
-			ypos++;
-			state = STOP_X;
-			break;
-		case DONE:
-			#ifdef ALERT_WHEN_DONE
-			portsval = ~portsval;
-			PORTD = portsval; //flash LED(s) and sound buzzer if attached
-			PORTB = portsval;
-			_delay_ms(250);
-			#endif
-			return;
+				{
+					// Moving faster with LX/LY
+					ReportData->LX = STICK_MIN;
+					ReportData->LY = STICK_MIN;
+				}
+				if (report_count == 75 || report_count == 150)
+				{
+					// Clear the screen
+					ReportData->Button |= SWITCH_LCLICK;
+					// Choose the smaller pencil
+					ReportData->Button |= SWITCH_L;
+				}
+				report_count++;
+				break;
+			case FILL_BLACK_STOP_X:
+				state = FILL_BLACK;
+				break;
+			case FILL_BLACK_STOP_Y:
+				state = FILL_BLACK_YSHIFT;
+				break;
+			case FILL_BLACK:
+				if (report_count <= 100){
+					if (report_count % 25 == 0){
+						ReportData->Button |= SWITCH_R; //Making sure it picks the larger brush again
+						ReportData->HAT = HAT_BOTTOM;
+					}
+					report_count++;
+				}
+				else if (report_count > 115 - 1 && report_count < 300){
+					if(report_count == 190 || report_count == 265)
+						ReportData->Button |= SWITCH_L;
+					ReportData->LX = STICK_MIN;
+					ReportData->LY = STICK_MIN;
+					report_count++;
+				}
+				else if (report_count >= 300){
+					blackfill = 0;
+					report_count = 0;
+					xpos = 0;
+					ypos = 0;
+					inkstopper = false;
+					state = STOP_X;
+				}
+				else{
+					if (ypos % 2)
+					{
+						if (xpos < 123)
+							ReportData->LX = STICK_MIN;
+						xpos--;
+					}
+					else
+					{
+						if (xpos > 2)
+							ReportData->LX = STICK_MAX;
+						xpos++;
+					}
+
+					if (xpos > -1 && xpos < 125){ //125 is just an estimated value to make sure it gets to the left/right
+						ReportData->Button |= SWITCH_A;
+						state = FILL_BLACK_STOP_X;
+					}
+					else{
+						if (ypos % 2)
+							xpos = 0;
+						else
+							xpos = 125 - 1;
+						ypos += 1;
+						state = FILL_BLACK_STOP_Y;
+					}
+				}
+				break;
+			case FILL_BLACK_YSHIFT: //has to happen 14 times; 115 = 14 + 101 initial steps
+				if (report_count >= 115 - 1){
+					report_count++;
+					state = FILL_BLACK_STOP_X;
+				}
+				if (blackfill < 9){
+					ReportData->HAT = HAT_BOTTOM;
+					state = FILL_BLACK_STOP_Y;
+					blackfill++;
+				}
+				else{
+					blackfill = 0;
+					report_count++;
+					state = FILL_BLACK_STOP_X;
+				}
+				break;
+			case STOP_X:
+				state = MOVE_X;
+				break;
+			case STOP_Y:
+				if (ypos < 120 - 1)
+					state = MOVE_Y;
+				else
+					if (endsave == true)
+						state = ENDSAVE;
+					else
+						state = DONE;
+				break;
+			case MOVE_X:
+				if (ypos % 2)
+				{
+					ReportData->HAT = HAT_LEFT;
+					xpos--;
+				}
+				else
+				{
+					ReportData->HAT = HAT_RIGHT;
+					xpos++;
+				}
+				if (xpos > 0 - cautiousoffset && xpos < 320 - 1 + cautiousoffset)
+					state = STOP_X;
+				else{
+					if (ypos % 2)
+						xpos = 0;
+					else
+						xpos = 320 - 1;
+					state = STOP_Y;
+				}
+				break;
+			case MOVE_Y:
+				ReportData->HAT = HAT_BOTTOM;
+				ypos++;
+				state = STOP_X;
+				break;
+			case ENDSAVE:
+				if (report_count <= 100){
+					if (report_count == 50)
+						ReportData->Button |= SWITCH_MINUS;
+				}
+				else {
+					state = DONE;
+				}
+				report_count++;
+				break;
+			case DONE:
+				#ifdef ALERT_WHEN_DONE
+				portsval = ~portsval;
+				PORTD = portsval; //flash LED(s) and sound buzzer if attached
+				PORTB = portsval;
+				_delay_ms(250);
+				#endif
+				return;
+		}
 	}
 
 	// Inking
-	if (state != SYNC_CONTROLLER && state != SYNC_POSITION && xpos >= 0 && xpos < 320)
-		if (opposite == false)
-			if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET])) & 1 << (xpos % 8))
-				ReportData->Button |= SWITCH_A;
-		else
-			if (!(pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET])) & 1 << (xpos % 8)))
-				ReportData->Button |= SWITCH_B;
+	if (slowflip == true || slowmode == false){
+		if (inkstopper == false && xpos >= 0 && xpos < 320){
+			if (opposite == false){
+				if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET/8])) & 1 << (xpos % 8))
+					ReportData->Button |= SWITCH_A;
+			}
+			else{
+				if (!(pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET/8])) & 1 << (xpos % 8)))
+					ReportData->Button |= SWITCH_B;
+			}
+		}
+	}
 
 	// Prepare to echo this report
 	memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_Input_t));
