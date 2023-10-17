@@ -34,6 +34,7 @@ int cautiousoffset = 0; //Could possibly change into a bool and then make the of
 bool opposite = false;
 bool slowmode = false;
 bool endsave = false;
+bool vertical = false;
 void CheckImageOptions(void) {
 	for (int current_bit = 0; current_bit < 8; current_bit++){
 		if (pgm_read_byte(&(image_data[current_bit/8])) & 1 << (current_bit % 8)){
@@ -42,10 +43,10 @@ void CheckImageOptions(void) {
 				case 1: opposite = true; break;
 				case 2: slowmode = true; break;
 				case 3: endsave = true; break;
-				case 4:
-				case 5:
-				case 6:
-				case 7:
+				case 4: vertical = true; break;
+				case 5: break;
+				case 6: break;
+				case 7: break;
 				default: break;
 			}
 		}
@@ -175,6 +176,10 @@ typedef enum {
 	STOP_Y,
 	MOVE_X,
 	MOVE_Y,
+	VERTICAL_STOP_X,
+	VERTICAL_STOP_Y,
+	VERTICAL_MOVE_X,
+	VERTICAL_MOVE_Y,
 	ENDSAVE,
 	DONE
 } State_t;
@@ -294,7 +299,11 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 					xpos = 0;
 					ypos = 0;
 					inkstopper = false;
-					state = STOP_X;
+
+					if (vertical == false)
+						state = STOP_X;
+					else
+						state = VERTICAL_STOP_Y
 				}
 				else{
 					if (ypos % 2)
@@ -340,6 +349,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 					state = FILL_BLACK_STOP_X;
 				}
 				break;
+
 			case STOP_X:
 				state = MOVE_X;
 				break;
@@ -378,6 +388,45 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				ypos++;
 				state = STOP_X;
 				break;
+
+			case VERTICAL_STOP_Y:
+				state = MOVE_Y
+				break;
+			case VERTICAL_STOP_X:
+				if (xpos < 320 - 1)
+					state = MOVE_X;
+				else
+					if (endsave == true)
+						state = ENDSAVE;
+					else
+						state = DONE;
+				break;
+			case VERTICAL_MOVE_Y:
+				if (xpos % 2)
+				{
+					ReportData->HAT = HAT_BOTTOM;
+					ypos--;
+				}
+				else
+				{
+					ReportData->HAT = HAT_TOP;
+					ypos++;
+				}
+				if (ypos > 0 - cautiousoffset && ypos < 120 - 1 + cautiousoffset)
+					state = STOP_Y;
+				else{
+					if (xpos % 2)
+						ypos = 0;
+					else
+						ypos = 120 - 1;
+					state = STOP_X;
+				}
+				break;
+			case VERTICAL_MOVE_X:
+				ReportData->HAT = HAT_RIGHT;
+				xpos++;
+				state = STOP_Y;
+				break;
 			case ENDSAVE:
 				if (report_count <= 100){
 					if (report_count == 50)
@@ -399,7 +448,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 		}
 	}
 
-	// Inking
+	// Inking; It should be already mapped so it will ink according to where in the image it is, correctly.
 	if (slowflip == true || slowmode == false){
 		if (inkstopper == false && xpos >= 0 && xpos < 320){
 			if (opposite == false){

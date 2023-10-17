@@ -12,7 +12,8 @@ def main(argv):
                    "cautious",
                    "opposite",
                    "slowmode",
-                   "endsave"]
+                   "endsave",
+                   "vertical"]
   opts, args = getopt.getopt(argv, "hpbcosein", long_opt_list)
   option_list = {'previewBilevel': False, 
                  'saveBilevel': False,
@@ -21,7 +22,8 @@ def main(argv):
                  'cautious': False,
                  'opposite': False,
                  'slowmode': False,
-                 'endsave': False}
+                 'endsave': False,
+                 'vertical': False}
 
   for opt, arg in opts:
     if opt in ['-h', '--help']:
@@ -43,6 +45,8 @@ def main(argv):
       option_list['endsave'] = True
     elif opt in ['-i', '--invertcmap']:
       option_list['invertColormap'] = True
+    elif opt in ['-v', '--vertical']:
+      option_list['vertical'] = True
 
   filename = args[0]
   filename_direct = os.path.basename(filename)
@@ -85,7 +89,11 @@ def main(argv):
          data.append(0 if im_px[j,i] == 255 else 1)
 
     str_out = "#include <stdint.h>\n#include <avr/pgmspace.h>\n\nconst uint8_t image_data[0x12c2] PROGMEM = {"
-    options = hex(2**0 * option_list['cautious'] + 2**1 * option_list['opposite'] + 2**2 * option_list['slowmode'] + 2**3 * option_list['endsave']) # Adding printing options to the code file
+    options = hex(2**0 * option_list['cautious'] # Adding printing options to the code file
+                  + 2**1 * option_list['opposite'] 
+                  + 2**2 * option_list['slowmode'] 
+                  + 2**3 * option_list['endsave'] 
+                  + 2**4 * option_list['vertical'])
     str_out += options + ", "
     for i in range(0, 4800): # 320 x 120 / 8
        val = 0
@@ -133,7 +141,8 @@ def usage():
   print("  * Slowmode separates moving and inking into 2 separate actions. This doubles the time spent printing, but makes it extremely unlikely for there to be dropped inputs. Recommended for complex images.")
   print("--endsave [-e]: To have Splatoon 3 save and close the image after printing it.")
   print("  * Since saving at the end overwrites whatever you had before, sometimes it's not ideal to have the image save on top. If you don't mind that, though, enable this option.")
-  
+  print("--vertical [-v]: To print in vertical mode. This mode basically just prints column per column rather than line per line. Due to having more \"turns\", it might result in a slightly longer time, but any printing mistakes (especially with cautious mode on) will be less significant.")
+
 if __name__ == "__main__":
   if len(sys.argv[1:]) == 0:
     usage()
