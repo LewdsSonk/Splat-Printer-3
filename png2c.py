@@ -14,7 +14,7 @@ def main(argv):
                    "slowmode",
                    "endsave",
                    "vertical"]
-  opts, args = getopt.getopt(argv, "hpbcosein", long_opt_list)
+  opts, args = getopt.getopt(argv, "hpbcoseinv", long_opt_list)
   option_list = {'previewBilevel': False, 
                  'saveBilevel': False,
                  'invertColormap': False,
@@ -76,11 +76,11 @@ def main(argv):
   if option_list['previewBilevel']:
     print(f"Previewing {filename_direct}!")
     im.show()
-  
+
   if option_list['saveBilevel']:
     im.save(f"preview-images\\bilevel_{filename_direct}")
     print("Bilevel preview version of " + filename_direct + " saved as bilevel_" + filename_direct)
-  
+
   if not (option_list['previewBilevel'] or option_list['saveBilevel']):
     im_px = im.load()
     data = []
