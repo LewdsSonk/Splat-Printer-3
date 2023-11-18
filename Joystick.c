@@ -26,7 +26,7 @@ these buttons for our use.
 
 #include "Joystick.h"
 
-extern const uint8_t image_data[0x12c2] PROGMEM;
+extern const uint8_t image_data[0x12c6] PROGMEM;
 
 //Global values for the options
 int cautiousoffset = 0; //Could possibly change into a bool and then make the offset somewhere else in the future?
@@ -35,6 +35,9 @@ bool opposite = false;
 bool slowmode = false;
 bool endsave = false;
 bool vertical = false;
+bool fix = false;
+bool fix_right_or_left = false;
+
 void CheckImageOptions(void) {
 	for (int current_bit = 0; current_bit < 8; current_bit++){
 		if (pgm_read_byte(&(image_data[current_bit/8])) & 1 << (current_bit % 8)){
@@ -44,7 +47,7 @@ void CheckImageOptions(void) {
 				case 2: slowmode = true; break;
 				case 3: endsave = true; break;
 				case 4: vertical = true; break;
-				case 5: break;
+				case 5: fix = true; break;
 				case 6: break;
 				case 7: break;
 				default: break;
@@ -180,6 +183,15 @@ typedef enum {
 	VERTICAL_STOP_Y,
 	VERTICAL_MOVE_X,
 	VERTICAL_MOVE_Y,
+	FIX_BUFFER,
+	FIX_STOP_X,
+	FIX_STOP_Y,
+	FIX_MOVE_X,
+	FIX_MOVE_Y,
+	FIX_VERTICAL_STOP_X,
+	FIX_VERTICAL_STOP_Y,
+	FIX_VERTICAL_MOVE_X,
+	FIX_VERTICAL_MOVE_Y,
 	ENDSAVE,
 	DONE
 } State_t;
@@ -189,24 +201,20 @@ State_t state = SYNC_CONTROLLER;
 int echoes = 0;
 USB_JoystickReport_Input_t last_report;
 
-#define FLAGS_OFFSET 8
+#define OPTIONS_OFFSET 1 //Number of option bytes (always the first byte)
+#define FIX_OFFSET 40 //Number of extra bytes used for fix mode
+
 int report_count = 0;
 int xpos = 0;
 int ypos = 0;
 int blackfill = 0;
 int portsval = 0;
-bool slowflip = false;
+bool slowflip = true;
+bool inkturn = true;
 bool inkstopper = true;
 
 // Prepare the next report for the host.
 void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
-
-	if (slowmode == true && inkstopper == false){
-		if (slowflip == false)
-			slowflip = true;
-		else
-			slowflip = false;
-	}
 
 	// Prepare an empty report
 	memset(ReportData, 0, sizeof(USB_JoystickReport_Input_t));
@@ -244,18 +252,28 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				}
 				report_count++;
 				break;
+
 			case SYNC_POSITION:
 				if (report_count >= 250)
 				{
 					report_count = 0;
 					xpos = 0;
 					ypos = 0;
-					if (opposite == false){
-						inkstopper = false;
-						state = STOP_X;
-					}
-					else
+					if (fix == true)
+						if (vertical == false)
+							state = FIX_STOP_X;
+						else
+							state = FIX_VERTICAL_STOP_Y;
+					else if (opposite == true)
 						state = FILL_BLACK_STOP_X;
+					else{
+						inkstopper = false;
+
+						if (vertical == false)
+							state = STOP_X;
+						else
+							state = VERTICAL_STOP_Y;
+					}
 				}
 				else
 				{
@@ -266,12 +284,14 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				if (report_count == 75 || report_count == 150)
 				{
 					// Clear the screen
-					ReportData->Button |= SWITCH_LCLICK;
+					if (fix == false) //Unless we're in fix mode
+						ReportData->Button |= SWITCH_LCLICK;
 					// Choose the smaller pencil
 					ReportData->Button |= SWITCH_L;
 				}
 				report_count++;
 				break;
+
 			case FILL_BLACK_STOP_X:
 				state = FILL_BLACK;
 				break;
@@ -303,7 +323,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 					if (vertical == false)
 						state = STOP_X;
 					else
-						state = VERTICAL_STOP_Y
+						state = VERTICAL_STOP_Y;
 				}
 				else{
 					if (ypos % 2)
@@ -390,11 +410,11 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				break;
 
 			case VERTICAL_STOP_Y:
-				state = MOVE_Y
+				state = VERTICAL_MOVE_Y;
 				break;
 			case VERTICAL_STOP_X:
 				if (xpos < 320 - 1)
-					state = MOVE_X;
+					state = VERTICAL_MOVE_X;
 				else
 					if (endsave == true)
 						state = ENDSAVE;
@@ -404,29 +424,86 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 			case VERTICAL_MOVE_Y:
 				if (xpos % 2)
 				{
-					ReportData->HAT = HAT_BOTTOM;
+					ReportData->HAT = HAT_TOP;
 					ypos--;
 				}
 				else
 				{
-					ReportData->HAT = HAT_TOP;
+					ReportData->HAT = HAT_BOTTOM;
 					ypos++;
 				}
 				if (ypos > 0 - cautiousoffset && ypos < 120 - 1 + cautiousoffset)
-					state = STOP_Y;
+					state = VERTICAL_STOP_Y;
 				else{
 					if (xpos % 2)
 						ypos = 0;
 					else
 						ypos = 120 - 1;
-					state = STOP_X;
+					state = VERTICAL_STOP_X;
 				}
 				break;
 			case VERTICAL_MOVE_X:
 				ReportData->HAT = HAT_RIGHT;
 				xpos++;
-				state = STOP_Y;
+				state = VERTICAL_STOP_Y;
 				break;
+
+			case FIX_BUFFER:
+				if (fix_right_or_left)
+					fix_right_or_left = false;
+				else
+					fix_right_or_left = true;
+				if (vertical == false)
+					state = FIX_MOVE_Y;
+				else
+					state = FIX_VERTICAL_MOVE_X;
+
+			case FIX_STOP_X:
+				state = MOVE_X;
+				break;
+			case FIX_STOP_Y:
+				if (ypos < 120 - 1)
+					if (pgm_read_byte(&(image_data[(ypos/8) + OPTIONS_OFFSET + FIX_OFFSET])) & 1 << (ypos % 8)){
+						inkstopper = false;
+						state = FIX_STOP_X;
+					}
+					else
+						state = MOVE_Y;
+				else{
+					if (endsave == true)
+						state = ENDSAVE;
+					else
+						state = DONE;
+				}
+				break;
+			case FIX_MOVE_X:
+				if (fix_right_or_left)
+				{
+					ReportData->HAT = HAT_LEFT;
+					xpos--;
+				}
+				else
+				{
+					ReportData->HAT = HAT_RIGHT;
+					xpos++;
+				}
+				if (xpos > 0 - cautiousoffset && xpos < 320 - 1 + cautiousoffset)
+					state = FIX_STOP_X;
+				else{
+					if (fix_right_or_left)
+						xpos = 0;
+					else
+						xpos = 320 - 1;
+					inkstopper = true;
+					state = FIX_BUFFER;
+				}
+				break;
+			case FIX_MOVE_Y:
+				ReportData->HAT = HAT_BOTTOM;
+				ypos++;
+				state = FIX_STOP_Y;
+				break;
+
 			case ENDSAVE:
 				if (report_count <= 100){
 					if (report_count == 50)
@@ -448,19 +525,44 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 		}
 	}
 
-	// Inking; It should be already mapped so it will ink according to where in the image it is, correctly.
-	if (slowflip == true || slowmode == false){
-		if (inkstopper == false && xpos >= 0 && xpos < 320){
-			if (opposite == false){
-				if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET/8])) & 1 << (xpos % 8))
+	// Inking; It's mapped so it will ink according to the coordinate in the image that it is at.
+	if (fix == false){
+		if (slowflip == true || slowmode == false){
+			if (inkstopper == false && xpos >= 0 && xpos < 320 && ypos >= 0 && ypos < 120){
+				if (opposite == false)
 					ReportData->Button |= SWITCH_A;
-			}
-			else{
-				if (!(pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + FLAGS_OFFSET/8])) & 1 << (xpos % 8)))
+				else
 					ReportData->Button |= SWITCH_B;
 			}
+			inkturn = true;
+		}
+		slowflip = false;
+	}
+	else{ //Inks AND Erases; only used if the screen isn't cleared beforehand, for whatever reason.
+		if (slowflip == true || slowmode == false){
+			if (inkstopper == false && xpos >= 0 && xpos < 320 && ypos >= 0 && ypos < 120){
+				if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + OPTIONS_OFFSET + FIX_OFFSET])) & 1 << (xpos % 8))
+					ReportData->Button |= SWITCH_A;
+				else
+					ReportData->Button |= SWITCH_B;
+			}
+			inkturn = true;
+		}
+		slowflip = false;
+	}
+
+	if (inkturn == false && slowmode == true){
+		if (opposite == false){ //Checks if the current pixel should be inked or not
+			if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + OPTIONS_OFFSET + FIX_OFFSET])) & 1 << (xpos % 8))
+				slowflip = true;
+		}
+		else{
+			if (!(pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40) + OPTIONS_OFFSET + FIX_OFFSET])) & 1 << (xpos % 8)))
+				slowflip = true;
 		}
 	}
+
+	inkturn = false;
 
 	// Prepare to echo this report
 	memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_Input_t));
